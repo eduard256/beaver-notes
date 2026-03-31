@@ -200,95 +200,16 @@
   border-radius: var(--radius-sm);
 }
 
-/* Video card */
-.msg-video-card {
+/* Videos */
+.msg-video {
   margin-top: var(--space-3);
 }
 
-.msg-video-preview {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-secondary);
-}
-
-.msg-video-icon {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 56px;
-  height: 56px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-}
-
-.msg-video-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.msg-video-actions {
-  flex-shrink: 0;
-  display: flex;
-  gap: var(--space-2);
-}
-
-.msg-video-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  background: var(--bg-tertiary);
-  transition: color var(--transition-fast), background var(--transition-fast);
-  text-decoration: none;
-}
-
-.msg-video-btn:hover {
-  color: var(--text-primary);
-  background: var(--accent-subtle);
-}
-
-.msg-video-player {
-  position: relative;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  background: #000;
-}
-
-.msg-video-player video {
+.msg-video video {
   width: 100%;
-  max-height: 500px;
-  display: block;
-}
-
-.msg-video-close {
-  position: absolute;
-  top: var(--space-2);
-  right: var(--space-2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6);
-  color: white;
-  transition: background var(--transition-fast);
-}
-
-.msg-video-close:hover {
-  background: rgba(0, 0, 0, 0.8);
+  max-height: 400px;
+  border-radius: var(--radius-md);
+  background: #000;
 }
 
 /* File attachments */

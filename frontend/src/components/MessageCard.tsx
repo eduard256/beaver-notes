@@ -164,7 +164,12 @@ export default function MessageCard({ message, onEdit, onDelete, onUpdate }: Mes
         )}
 
         {videos.map((f) => (
-          <VideoAttachment key={f.id} file={f} />
+          <div key={f.id} className="msg-video">
+            <video controls preload="metadata" playsInline>
+              <source src={fileUrl(f.id)} type={f.mime_type} />
+            </video>
+            <span className="msg-file-size">{formatFileSize(f.size)}</span>
+          </div>
         ))}
 
         {otherFiles.map((f) => (
@@ -254,53 +259,6 @@ export default function MessageCard({ message, onEdit, onDelete, onUpdate }: Mes
         )}
       </AnimatePresence>
     </>
-  );
-}
-
-function VideoAttachment({ file }: { file: FileInfo }) {
-  const [showPlayer, setShowPlayer] = useState(false);
-
-  return (
-    <div className="msg-video-card">
-      {showPlayer ? (
-        <div className="msg-video-player">
-          <video controls autoPlay preload="auto" playsInline>
-            <source src={fileUrl(file.id)} type={file.mime_type} />
-          </video>
-          <button className="msg-video-close" onClick={() => setShowPlayer(false)}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
-        </div>
-      ) : (
-        <div className="msg-video-preview">
-          <div className="msg-video-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <polygon points="5 3 19 12 5 21 5 3"/>
-            </svg>
-          </div>
-          <div className="msg-video-info">
-            <span className="msg-file-name">{file.filename}</span>
-            <span className="msg-file-size">{formatFileSize(file.size)}</span>
-          </div>
-          <div className="msg-video-actions">
-            <button className="msg-video-btn" onClick={() => setShowPlayer(true)} title="Открыть">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polygon points="5 3 19 12 5 21 5 3"/>
-              </svg>
-            </button>
-            <a href={fileUrl(file.id)} download={file.filename} className="msg-video-btn" title="Скачать" onClick={(e) => e.stopPropagation()}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="7 10 12 15 17 10"/>
-                <line x1="12" y1="15" x2="12" y2="3"/>
-              </svg>
-            </a>
-          </div>
-        </div>
-      )}
-    </div>
   );
 }
 
