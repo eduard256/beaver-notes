@@ -1,0 +1,225 @@
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
+import { AnimatePresence } from 'motion/react';
+import type { Message as MessageType, MessageQuery } from '../utils/api';
+import { getMessages, createMessage, editMessage, uploadWithProgress } from '../utils/api';
+import { formatDate, getDateKey } from '../utils/format';
+import MessageCard from './MessageCard';
+import QuickInput from './QuickInput';
+import Editor from './Editor';
+import Search from './Search';
+import './Wall.css';
+
+const PAGE_SIZE = 50;
+
+export default function Wall() {
+  const [messages, setMessages] = useState<MessageType[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(true);
+  const [searchQuery, setSearchQuery] = useState<MessageQuery | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingMessage, setEditingMessage] = useState<MessageType | null>(null);
+  const [editorInitialContent, setEditorInitialContent] = useState('');
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+
+  // Load messages
+  const loadMessages = useCallback(async (offset: number, query?: MessageQuery | null) => {
+    try {
+      const q = query || {};
+      const resp = await getMessages({ ...q, offset, limit: PAGE_SIZE });
+      return resp;
+    } catch {
+      return { messages: [], total: 0, has_more: false };
+    }
+  }, []);
+
+  // Initial load
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const resp = await loadMessages(0, searchQuery);
+      setMessages(resp.messages);
+      setHasMore(resp.has_more);
+      setLoading(false);
+    })();
+  }, [searchQuery, loadMessages]);
+
+  // Load more (older messages)
+  const loadMore = useCallback(async () => {
+    if (!hasMore) return;
+    const resp = await loadMessages(messages.length, searchQuery);
+    setMessages(prev => [...prev, ...resp.messages]);
+    setHasMore(resp.has_more);
+  }, [hasMore, messages.length, searchQuery, loadMessages]);
+
+  // Send message (quick input)
+  const handleSend = useCallback(async (content: string, files: File[]) => {
+    try {
+      let msg: MessageType;
+      if (files.length > 0) {
+        msg = await uploadWithProgress(content, files, () => {});
+      } else {
+        msg = await createMessage(content);
+      }
+      setMessages(prev => [msg, ...prev]);
+      // Scroll to top (newest message)
+      virtuosoRef.current?.scrollToIndex({ index: 0, behavior: 'smooth' });
+    } catch { /* ignore */ }
+  }, []);
+
+  // Save from editor (new or edit)
+  const handleEditorSave = useCallback(async (content: string, files: File[]) => {
+    try {
+      if (editingMessage) {
+        // Editing existing message
+        const updated = await editMessage(editingMessage.id, content);
+        setMessages(prev => prev.map(m => m.id === updated.id ? updated : m));
+      } else {
+        // Creating new message
+        let msg: MessageType;
+        if (files.length > 0) {
+          msg = await uploadWithProgress(content, files, () => {});
+        } else {
+          msg = await createMessage(content);
+        }
+        setMessages(prev => [msg, ...prev]);
+        virtuosoRef.current?.scrollToIndex({ index: 0, behavior: 'smooth' });
+      }
+    } catch { /* ignore */ }
+
+    setEditorOpen(false);
+    setEditingMessage(null);
+    setEditorInitialContent('');
+  }, [editingMessage]);
+
+  // Open editor for new message
+  const handleOpenEditor = useCallback((initialContent?: string) => {
+    setEditingMessage(null);
+    setEditorInitialContent(initialContent || '');
+    setEditorOpen(true);
+  }, []);
+
+  // Open editor for editing
+  const handleEdit = useCallback((msg: MessageType) => {
+    setEditingMessage(msg);
+    setEditorInitialContent(msg.content);
+    setEditorOpen(true);
+  }, []);
+
+  // Delete message
+  const handleDelete = useCallback((id: string) => {
+    setMessages(prev => prev.filter(m => m.id !== id));
+  }, []);
+
+  // Update message (pin/unpin)
+  const handleUpdate = useCallback((msg: MessageType) => {
+    setMessages(prev => prev.map(m => m.id === msg.id ? msg : m));
+  }, []);
+
+  // Search
+  const handleSearch = useCallback((query: MessageQuery) => {
+    setSearchQuery(query);
+  }, []);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery(null);
+  }, []);
+
+  // Group messages by date for date separators
+  const itemsWithSeparators = buildItemsWithSeparators(messages);
+
+  return (
+    <div className="wall">
+      <Search
+        onSearch={handleSearch}
+        onClear={handleClearSearch}
+        isActive={searchQuery !== null}
+      />
+
+      <div className="wall-content">
+        {loading ? (
+          <div className="wall-loading">
+            <div className="wall-spinner" />
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="wall-empty">
+            <img src="/beaver.svg" alt="" className="wall-empty-icon" />
+            <p>{searchQuery ? 'Ничего не найдено' : 'Пока пусто. Отправьте первое сообщение!'}</p>
+          </div>
+        ) : (
+          <Virtuoso
+            ref={virtuosoRef}
+            data={itemsWithSeparators}
+            endReached={loadMore}
+            overscan={500}
+            className="wall-virtuoso"
+            itemContent={(_, item) => {
+              if (item.type === 'separator') {
+                return (
+                  <div className="wall-date-separator">
+                    <span>{item.label}</span>
+                  </div>
+                );
+              }
+              return (
+                <div className="wall-message-wrapper">
+                  <MessageCard
+                    message={item.message!}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                    onUpdate={handleUpdate}
+                  />
+                </div>
+              );
+            }}
+            components={{
+              Footer: () =>
+                hasMore ? (
+                  <div className="wall-loading-more">
+                    <div className="wall-spinner wall-spinner--small" />
+                  </div>
+                ) : null,
+            }}
+          />
+        )}
+      </div>
+
+      <QuickInput onSend={handleSend} onOpenEditor={handleOpenEditor} />
+
+      <AnimatePresence>
+        {editorOpen && (
+          <Editor
+            initialContent={editorInitialContent}
+            onSave={handleEditorSave}
+            onCancel={() => {
+              setEditorOpen(false);
+              setEditingMessage(null);
+            }}
+            isEdit={!!editingMessage}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// Types for wall items
+type WallItem =
+  | { type: 'separator'; label: string; key: string }
+  | { type: 'message'; message: MessageType; key: string };
+
+function buildItemsWithSeparators(messages: MessageType[]): WallItem[] {
+  const items: WallItem[] = [];
+  let lastDateKey = '';
+
+  for (const msg of messages) {
+    const dk = getDateKey(msg.created_at);
+    if (dk !== lastDateKey) {
+      items.push({ type: 'separator', label: formatDate(msg.created_at), key: 'sep-' + dk });
+      lastDateKey = dk;
+    }
+    items.push({ type: 'message', message: msg, key: msg.id });
+  }
+
+  return items;
+}

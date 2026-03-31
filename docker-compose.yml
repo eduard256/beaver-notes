@@ -1,0 +1,15 @@
+services:
+  beaver-notes:
+    build: .
+    ports:
+      - "8762:8762"
+    environment:
+      - AUTH_PASSWORD=${AUTH_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+      - SECURE_COOKIE=${SECURE_COOKIE:-true}
+    volumes:
+      - beaver-data:/data
+    restart: unless-stopped
+
+volumes:
+  beaver-data:
