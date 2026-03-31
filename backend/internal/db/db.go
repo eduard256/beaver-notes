@@ -293,19 +293,27 @@ func (d *DB) QueryMessages(q models.MessageQuery) (*models.MessagesResponse, err
 	if err != nil {
 		return nil, fmt.Errorf("query messages: %w", err)
 	}
-	defer rows.Close()
 
+	// Collect all messages first, then close rows before doing sub-queries.
+	// With MaxOpenConns(1), calling getFiles/getTags while rows is open
+	// would deadlock waiting for the single connection.
 	var messages []models.Message
 	for rows.Next() {
 		var msg models.Message
 		var pinned int
 		if err := rows.Scan(&msg.ID, &msg.Content, &pinned, &msg.CreatedAt, &msg.UpdatedAt); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		msg.Pinned = pinned == 1
-		msg.Files, _ = d.getFiles(msg.ID)
-		msg.Tags, _ = d.getTags(msg.ID)
 		messages = append(messages, msg)
+	}
+	rows.Close()
+
+	// Now load files and tags for each message (connection is free)
+	for i := range messages {
+		messages[i].Files, _ = d.getFiles(messages[i].ID)
+		messages[i].Tags, _ = d.getTags(messages[i].ID)
 	}
 
 	if messages == nil {
