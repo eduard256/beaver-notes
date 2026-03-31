@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
-import { AnimatePresence } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import type { Message as MessageType, MessageQuery } from '../utils/api';
 import { getMessages, createMessage, editMessage, uploadWithProgress } from '../utils/api';
 import { formatDate, getDateKey } from '../utils/format';
@@ -11,6 +11,7 @@ import Search from './Search';
 import './Wall.css';
 
 const PAGE_SIZE = 50;
+const POLL_INTERVAL = 3000;
 
 interface WallProps {
   onUnauthorized?: () => void;
@@ -24,7 +25,13 @@ export default function Wall({ onUnauthorized: _onUnauthorized }: WallProps) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingMessage, setEditingMessage] = useState<MessageType | null>(null);
   const [editorInitialContent, setEditorInitialContent] = useState('');
+  const [newCount, setNewCount] = useState(0);
+  const [isAtTop, setIsAtTop] = useState(true);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const messagesRef = useRef<MessageType[]>([]);
+
+  // Keep ref in sync with state for polling callback
+  messagesRef.current = messages;
 
   // Load messages
   const loadMessages = useCallback(async (offset: number, query?: MessageQuery | null) => {
@@ -45,8 +52,53 @@ export default function Wall({ onUnauthorized: _onUnauthorized }: WallProps) {
       setMessages(resp.messages);
       setHasMore(resp.has_more);
       setLoading(false);
+      setNewCount(0);
     })();
   }, [searchQuery, loadMessages]);
+
+  // Polling for new messages every 3 seconds
+  useEffect(() => {
+    if (searchQuery) return; // no polling during search
+
+    const interval = setInterval(async () => {
+      try {
+        const resp = await getMessages({ offset: 0, limit: PAGE_SIZE });
+        const current = messagesRef.current;
+        if (resp.messages.length === 0) return;
+
+        // Find messages that are not in our current list
+        const currentIds = new Set(current.map(m => m.id));
+        const fresh = resp.messages.filter(m => !currentIds.has(m.id));
+
+        if (fresh.length === 0) {
+          // Check for edits/pin changes on existing messages
+          let changed = false;
+          const updatedMap = new Map(resp.messages.map(m => [m.id, m]));
+          const updated = current.map(m => {
+            const newer = updatedMap.get(m.id);
+            if (newer && newer.updated_at !== m.updated_at) {
+              changed = true;
+              return newer;
+            }
+            return m;
+          });
+          if (changed) setMessages(updated);
+          return;
+        }
+
+        if (isAtTop) {
+          // User is at top - insert new messages directly
+          setMessages(prev => [...fresh, ...prev]);
+        } else {
+          // User is scrolling down - show "new messages" badge
+          setMessages(prev => [...fresh, ...prev]);
+          setNewCount(prev => prev + fresh.length);
+        }
+      } catch { /* ignore polling errors */ }
+    }, POLL_INTERVAL);
+
+    return () => clearInterval(interval);
+  }, [searchQuery, isAtTop]);
 
   // Load more (older messages)
   const loadMore = useCallback(async () => {
@@ -55,6 +107,18 @@ export default function Wall({ onUnauthorized: _onUnauthorized }: WallProps) {
     setMessages(prev => [...prev, ...resp.messages]);
     setHasMore(resp.has_more);
   }, [hasMore, messages.length, searchQuery, loadMessages]);
+
+  // Scroll to top and dismiss new messages badge
+  const scrollToTop = useCallback(() => {
+    virtuosoRef.current?.scrollToIndex({ index: 0, behavior: 'smooth' });
+    setNewCount(0);
+  }, []);
+
+  // Track scroll position
+  const handleAtTopChange = useCallback((atTop: boolean) => {
+    setIsAtTop(atTop);
+    if (atTop) setNewCount(0);
+  }, []);
 
   // Send message (quick input)
   const handleSend = useCallback(async (content: string, files: File[]) => {
@@ -66,7 +130,6 @@ export default function Wall({ onUnauthorized: _onUnauthorized }: WallProps) {
         msg = await createMessage(content);
       }
       setMessages(prev => [msg, ...prev]);
-      // Scroll to top (newest message)
       virtuosoRef.current?.scrollToIndex({ index: 0, behavior: 'smooth' });
     } catch { /* ignore */ }
   }, []);
@@ -75,11 +138,9 @@ export default function Wall({ onUnauthorized: _onUnauthorized }: WallProps) {
   const handleEditorSave = useCallback(async (content: string, files: File[]) => {
     try {
       if (editingMessage) {
-        // Editing existing message
         const updated = await editMessage(editingMessage.id, content);
         setMessages(prev => prev.map(m => m.id === updated.id ? updated : m));
       } else {
-        // Creating new message
         let msg: MessageType;
         if (files.length > 0) {
           msg = await uploadWithProgress(content, files, () => {});
@@ -141,6 +202,25 @@ export default function Wall({ onUnauthorized: _onUnauthorized }: WallProps) {
       />
 
       <div className="wall-content">
+        {/* New messages badge */}
+        <AnimatePresence>
+          {newCount > 0 && !isAtTop && (
+            <motion.button
+              className="wall-new-badge"
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.2 }}
+              onClick={scrollToTop}
+            >
+              {newCount} {newCount === 1 ? 'новое сообщение' : newCount < 5 ? 'новых сообщения' : 'новых сообщений'}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="18 15 12 9 6 15"/>
+              </svg>
+            </motion.button>
+          )}
+        </AnimatePresence>
+
         {loading ? (
           <div className="wall-loading">
             <div className="wall-spinner" />
@@ -155,6 +235,7 @@ export default function Wall({ onUnauthorized: _onUnauthorized }: WallProps) {
             ref={virtuosoRef}
             data={itemsWithSeparators}
             endReached={loadMore}
+            atTopStateChange={handleAtTopChange}
             overscan={500}
             className="wall-virtuoso"
             itemContent={(_, item) => {

@@ -332,6 +332,19 @@
   background: var(--danger-subtle);
 }
 
+.msg-action-btn--confirm {
+  width: auto;
+  padding: 0 8px;
+  color: var(--danger) !important;
+  background: var(--danger-subtle);
+}
+
+.msg-action-confirm-text {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 /* Mobile: always-visible compact actions */
 @media (max-width: 768px) {
   .msg-actions {

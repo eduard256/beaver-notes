@@ -6,6 +6,7 @@
 }
 
 .wall-content {
+  position: relative;
   flex: 1;
   overflow: hidden;
   /* Leave space for quick input at bottom */
@@ -42,6 +43,33 @@
   border-radius: var(--radius-xl);
   letter-spacing: 0.02em;
   text-transform: uppercase;
+}
+
+/* New messages badge */
+.wall-new-badge {
+  position: absolute;
+  top: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-xl);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  box-shadow: var(--shadow-lg);
+  transition: background var(--transition-fast);
+  white-space: nowrap;
+}
+
+.wall-new-badge:hover {
+  background: var(--bg-card-hover);
 }
 
 /* Loading states */
