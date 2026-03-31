@@ -69,9 +69,20 @@
   color: var(--accent);
 }
 
+.qi-btn-send--sending {
+  width: auto;
+  padding: 0 8px;
+}
+
 .qi-btn-send:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.qi-send-progress {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 /* File chips */
