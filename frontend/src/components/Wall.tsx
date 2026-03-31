@@ -27,6 +27,7 @@ export default function Wall({ onUnauthorized: _onUnauthorized }: WallProps) {
   const [editorInitialContent, setEditorInitialContent] = useState('');
   const [newCount, setNewCount] = useState(0);
   const [isAtTop, setIsAtTop] = useState(true);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const messagesRef = useRef<MessageType[]>([]);
 
@@ -125,13 +126,17 @@ export default function Wall({ onUnauthorized: _onUnauthorized }: WallProps) {
     try {
       let msg: MessageType;
       if (files.length > 0) {
-        msg = await uploadWithProgress(content, files, () => {});
+        setUploadProgress(0);
+        msg = await uploadWithProgress(content, files, (pct) => setUploadProgress(pct));
+        setUploadProgress(null);
       } else {
         msg = await createMessage(content);
       }
       setMessages(prev => [msg, ...prev]);
       virtuosoRef.current?.scrollToIndex({ index: 0, behavior: 'smooth' });
-    } catch { /* ignore */ }
+    } catch {
+      setUploadProgress(null);
+    }
   }, []);
 
   // Save from editor (new or edit)
@@ -269,7 +274,7 @@ export default function Wall({ onUnauthorized: _onUnauthorized }: WallProps) {
         )}
       </div>
 
-      <QuickInput onSend={handleSend} onOpenEditor={handleOpenEditor} />
+      <QuickInput onSend={handleSend} onOpenEditor={handleOpenEditor} uploadProgress={uploadProgress} />
 
       <AnimatePresence>
         {editorOpen && (

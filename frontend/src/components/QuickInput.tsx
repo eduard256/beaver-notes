@@ -3,28 +3,34 @@ import { motion, AnimatePresence } from 'motion/react';
 import './QuickInput.css';
 
 interface QuickInputProps {
-  onSend: (content: string, files: File[]) => void;
+  onSend: (content: string, files: File[]) => Promise<void>;
   onOpenEditor: (initialContent?: string) => void;
+  uploadProgress: number | null;
 }
 
-export default function QuickInput({ onSend, onOpenEditor }: QuickInputProps) {
+export default function QuickInput({ onSend, onOpenEditor, uploadProgress }: QuickInputProps) {
   const [text, setText] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [sending, setSending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     if (!text.trim() && files.length === 0) return;
-    onSend(text, files);
-    setText('');
-    setFiles([]);
-    setUploadProgress(null);
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
+    if (sending) return;
+    setSending(true);
+    try {
+      await onSend(text, files);
+      setText('');
+      setFiles([]);
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+    } finally {
+      setSending(false);
     }
-  }, [text, files, onSend]);
+  }, [text, files, onSend, sending]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter to send, Shift+Enter for newline
@@ -185,14 +191,18 @@ export default function QuickInput({ onSend, onOpenEditor }: QuickInputProps) {
 
           {/* Send button */}
           <button
-            className={`qi-btn qi-btn-send ${(text.trim() || files.length > 0) ? 'qi-btn-send--active' : ''}`}
+            className={`qi-btn qi-btn-send ${(text.trim() || files.length > 0) ? 'qi-btn-send--active' : ''} ${sending ? 'qi-btn-send--sending' : ''}`}
             onClick={handleSend}
-            disabled={!text.trim() && files.length === 0}
-            title="Отправить"
+            disabled={(!text.trim() && files.length === 0) || sending}
+            title={uploadProgress !== null ? `${uploadProgress}%` : 'Отправить'}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-            </svg>
+            {uploadProgress !== null ? (
+              <span className="qi-send-progress">{uploadProgress}%</span>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              </svg>
+            )}
           </button>
         </div>
       </div>
