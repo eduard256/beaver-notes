@@ -2,7 +2,7 @@
 
 Self-hosted note wall for transferring data between devices. Like Telegram Saved Messages, but better.
 
-I built this because I needed a fast way to throw logs, passwords, configs, screenshots and files between my machines. Telegram splits large messages and has file size limits. This doesn't.
+I built this because I needed a fast way to throw logs, passwords, configs, screenshots and files between my machines. Telegram splits large messages, has file size limits, and can't guarantee full security of your data -- it's stored on someone else's servers. With Beaver Notes, everything stays on your own machine. No third parties, no cloud, no trust required.
 
 ## Features
 
