@@ -18,7 +18,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
 
   if (res.status === 401) {
-    window.location.href = '/login';
+    window.dispatchEvent(new Event('beaver-logout'));
     throw new ApiError('Unauthorized', 401);
   }
 

@@ -89,14 +89,8 @@ func (h *Handlers) Messages(w http.ResponseWriter, r *http.Request) {
 
 // MessageAction handles PATCH /api/messages/{id}?action=pin|unpin|edit|delete
 func (h *Handlers) MessageAction(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPatch {
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Extract message ID from path: /api/messages/{id}
-	id := strings.TrimPrefix(r.URL.Path, "/api/messages/")
-	if id == "" || strings.Contains(id, "/") {
+	id := r.PathValue("id")
+	if id == "" {
 		http.Error(w, `{"error":"invalid message id"}`, http.StatusBadRequest)
 		return
 	}
@@ -153,12 +147,7 @@ func (h *Handlers) MessageAction(w http.ResponseWriter, r *http.Request) {
 
 // FileDownload handles GET /api/files/{id} - streams the file.
 func (h *Handlers) FileDownload(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
-		return
-	}
-
-	id := strings.TrimPrefix(r.URL.Path, "/api/files/")
+	id := r.PathValue("id")
 	if id == "" {
 		http.Error(w, `{"error":"invalid file id"}`, http.StatusBadRequest)
 		return
@@ -193,12 +182,7 @@ func (h *Handlers) FileDownload(w http.ResponseWriter, r *http.Request) {
 
 // FileDelete handles DELETE /api/files/{id}.
 func (h *Handlers) FileDelete(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
-		return
-	}
-
-	id := strings.TrimPrefix(r.URL.Path, "/api/files/")
+	id := r.PathValue("id")
 	path, err := h.db.DeleteFile(id)
 	if err != nil {
 		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)

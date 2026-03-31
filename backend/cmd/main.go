@@ -59,19 +59,21 @@ func main() {
 	// Setup routes
 	mux := http.NewServeMux()
 
+	// Helper to wrap handler with auth middleware
+	withAuth := func(handler http.HandlerFunc) http.Handler {
+		return middleware.AuthMiddleware(a, http.HandlerFunc(handler))
+	}
+
 	// Auth routes (no auth middleware)
 	mux.Handle("POST /api/auth", middleware.RateLimit(authLimiter, http.HandlerFunc(h.AuthLogin)))
 	mux.Handle("GET /api/auth", http.HandlerFunc(h.AuthCheck))
 
-	// Protected API routes
-	protected := http.NewServeMux()
-	protected.HandleFunc("GET /api/messages", h.Messages)
-	protected.HandleFunc("POST /api/messages", h.Messages)
-	protected.HandleFunc("/api/messages/", h.MessageAction)
-	protected.HandleFunc("GET /api/files/", h.FileDownload)
-	protected.HandleFunc("DELETE /api/files/", h.FileDelete)
-
-	mux.Handle("/api/", middleware.AuthMiddleware(a, protected))
+	// Protected API routes (flat routing, each wrapped with auth)
+	mux.Handle("GET /api/messages", withAuth(h.Messages))
+	mux.Handle("POST /api/messages", withAuth(h.Messages))
+	mux.Handle("PATCH /api/messages/{id}", withAuth(h.MessageAction))
+	mux.Handle("GET /api/files/{id}", withAuth(h.FileDownload))
+	mux.Handle("DELETE /api/files/{id}", withAuth(h.FileDelete))
 
 	// Serve frontend static files
 	staticDir := getEnv("STATIC_DIR", "./static")

@@ -12,7 +12,11 @@ import './Wall.css';
 
 const PAGE_SIZE = 50;
 
-export default function Wall() {
+interface WallProps {
+  onUnauthorized?: () => void;
+}
+
+export default function Wall({ onUnauthorized: _onUnauthorized }: WallProps) {
   const [messages, setMessages] = useState<MessageType[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
