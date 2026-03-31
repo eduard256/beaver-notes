@@ -1,6 +1,5 @@
 .search-container {
-  position: sticky;
-  top: 0;
+  flex-shrink: 0;
   z-index: 50;
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-secondary);
