@@ -13,7 +13,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY backend/ ./backend/
-RUN CGO_ENABLED=1 go build -o server ./backend/cmd/main.go
+RUN CGO_ENABLED=1 go build -tags "fts5" -o server ./backend/cmd/main.go
 
 # Stage 3: Runtime
 FROM alpine:3.19
