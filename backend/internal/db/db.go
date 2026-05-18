@@ -46,6 +46,10 @@ func (d *DB) migrate() error {
 			created_at DATETIME NOT NULL DEFAULT (datetime('now')),
 			updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
 		)`,
+		// idempotent: ignore "duplicate column" on existing DBs
+		`ALTER TABLE messages ADD COLUMN deleted_at DATETIME`,
+		`CREATE INDEX IF NOT EXISTS idx_messages_updated_at ON messages(updated_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_messages_deleted_at ON messages(deleted_at)`,
 		`CREATE TABLE IF NOT EXISTS files (
 			id TEXT PRIMARY KEY,
 			message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
@@ -86,6 +90,10 @@ func (d *DB) migrate() error {
 
 	for _, stmt := range stmts {
 		if _, err := d.conn.Exec(stmt); err != nil {
+			// ADD COLUMN is not IF NOT EXISTS in SQLite — ignore on re-run
+			if strings.Contains(err.Error(), "duplicate column name") {
+				continue
+			}
 			return fmt.Errorf("exec %q: %w", stmt[:60], err)
 		}
 	}
@@ -146,10 +154,33 @@ func (d *DB) UpdateMessage(id, content string) (*models.Message, error) {
 	return d.GetMessage(id)
 }
 
-// DeleteMessage removes a message and its associated files metadata.
-// Returns the file storage paths so the caller can remove them from disk.
-func (d *DB) DeleteMessage(id string) ([]string, error) {
-	rows, err := d.conn.Query(`SELECT storage_path FROM files WHERE message_id = ?`, id)
+// DeleteMessage soft-deletes a message (sets deleted_at).
+// Files stay on disk for FILE_RETENTION_DAYS, then GC removes them.
+func (d *DB) DeleteMessage(id string) error {
+	now := time.Now().UTC()
+	res, err := d.conn.Exec(
+		`UPDATE messages SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
+		now, now, id,
+	)
+	if err != nil {
+		return fmt.Errorf("delete message: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("message not found")
+	}
+	return nil
+}
+
+// PurgeExpiredFiles removes files for messages soft-deleted before `cutoff`.
+// Returns disk paths to unlink. Run periodically from main goroutine.
+func (d *DB) PurgeExpiredFiles(cutoff time.Time) ([]string, error) {
+	rows, err := d.conn.Query(
+		`SELECT f.storage_path FROM files f
+		 JOIN messages m ON f.message_id = m.id
+		 WHERE m.deleted_at IS NOT NULL AND m.deleted_at < ?`,
+		cutoff,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -161,11 +192,12 @@ func (d *DB) DeleteMessage(id string) ([]string, error) {
 	}
 	rows.Close()
 
-	_, err = d.conn.Exec(`DELETE FROM messages WHERE id = ?`, id)
-	if err != nil {
-		return nil, fmt.Errorf("delete message: %w", err)
-	}
-	return paths, nil
+	_, err = d.conn.Exec(
+		`DELETE FROM files WHERE message_id IN
+		 (SELECT id FROM messages WHERE deleted_at IS NOT NULL AND deleted_at < ?)`,
+		cutoff,
+	)
+	return paths, err
 }
 
 // PinMessage sets or unsets the pinned flag.
@@ -189,13 +221,18 @@ func (d *DB) PinMessage(id string, pinned bool) error {
 func (d *DB) GetMessage(id string) (*models.Message, error) {
 	msg := &models.Message{}
 	var pinned int
+	var deletedAt sql.NullTime
 	err := d.conn.QueryRow(
-		`SELECT id, content, pinned, created_at, updated_at FROM messages WHERE id = ?`, id,
-	).Scan(&msg.ID, &msg.Content, &pinned, &msg.CreatedAt, &msg.UpdatedAt)
+		`SELECT id, content, pinned, created_at, updated_at, deleted_at FROM messages WHERE id = ?`, id,
+	).Scan(&msg.ID, &msg.Content, &pinned, &msg.CreatedAt, &msg.UpdatedAt, &deletedAt)
 	if err != nil {
 		return nil, err
 	}
 	msg.Pinned = pinned == 1
+	if deletedAt.Valid {
+		t := deletedAt.Time
+		msg.DeletedAt = &t
+	}
 	msg.Files, _ = d.getFiles(id)
 	msg.Tags, _ = d.getTags(id)
 	return msg, nil
@@ -212,6 +249,15 @@ func (d *DB) QueryMessages(q models.MessageQuery) (*models.MessagesResponse, err
 
 	var where []string
 	var args []interface{}
+
+	// since = incremental pull: include tombstones, ASC by updated_at
+	// no since = normal mode: hide tombstones, DESC by created_at
+	if q.Since != "" {
+		where = append(where, `m.updated_at > ?`)
+		args = append(args, q.Since)
+	} else {
+		where = append(where, `m.deleted_at IS NULL`)
+	}
 
 	// Full-text search using FTS5
 	if q.Search != "" {
@@ -279,13 +325,18 @@ func (d *DB) QueryMessages(q models.MessageQuery) (*models.MessagesResponse, err
 	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM messages m %s`, whereClause)
 	d.conn.QueryRow(countQuery, args...).Scan(&total)
 
+	orderBy := "m.created_at DESC"
+	if q.Since != "" {
+		orderBy = "m.updated_at ASC"
+	}
+
 	// Fetch page
 	query := fmt.Sprintf(
-		`SELECT m.id, m.content, m.pinned, m.created_at, m.updated_at
+		`SELECT m.id, m.content, m.pinned, m.created_at, m.updated_at, m.deleted_at
 		FROM messages m %s
-		ORDER BY m.created_at DESC
+		ORDER BY %s
 		LIMIT ? OFFSET ?`,
-		whereClause,
+		whereClause, orderBy,
 	)
 	args = append(args, q.Limit, q.Offset)
 
@@ -301,17 +352,25 @@ func (d *DB) QueryMessages(q models.MessageQuery) (*models.MessagesResponse, err
 	for rows.Next() {
 		var msg models.Message
 		var pinned int
-		if err := rows.Scan(&msg.ID, &msg.Content, &pinned, &msg.CreatedAt, &msg.UpdatedAt); err != nil {
+		var deletedAt sql.NullTime
+		if err := rows.Scan(&msg.ID, &msg.Content, &pinned, &msg.CreatedAt, &msg.UpdatedAt, &deletedAt); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		msg.Pinned = pinned == 1
+		if deletedAt.Valid {
+			t := deletedAt.Time
+			msg.DeletedAt = &t
+		}
 		messages = append(messages, msg)
 	}
 	rows.Close()
 
-	// Now load files and tags for each message (connection is free)
+	// Load files and tags only for live messages (tombstones may have no files after GC)
 	for i := range messages {
+		if messages[i].DeletedAt != nil {
+			continue
+		}
 		messages[i].Files, _ = d.getFiles(messages[i].ID)
 		messages[i].Tags, _ = d.getTags(messages[i].ID)
 	}
