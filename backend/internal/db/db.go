@@ -253,8 +253,13 @@ func (d *DB) QueryMessages(q models.MessageQuery) (*models.MessagesResponse, err
 	// since = incremental pull: include tombstones, ASC by updated_at
 	// no since = normal mode: hide tombstones, DESC by created_at
 	if q.Since != "" {
+		// parse ISO8601 / RFC3339 — sqlite driver serializes time.Time to its own DATETIME format
+		t, err := parseSince(q.Since)
+		if err != nil {
+			return nil, fmt.Errorf("invalid since: %w", err)
+		}
 		where = append(where, `m.updated_at > ?`)
-		args = append(args, q.Since)
+		args = append(args, t)
 	} else {
 		where = append(where, `m.deleted_at IS NULL`)
 	}
@@ -491,6 +496,17 @@ func extractTags(content string) []string {
 		}
 	}
 	return tags
+}
+
+// parseSince accepts RFC3339/ISO8601 timestamps from clients.
+// Accepts "2026-05-18T12:00:00Z", "2026-05-18", "2026-05-18 12:00:00".
+func parseSince(s string) (time.Time, error) {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unsupported time format: %s", s)
 }
 
 // escapeFTS escapes special FTS5 query characters for safe searching.
