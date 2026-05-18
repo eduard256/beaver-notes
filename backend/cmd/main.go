@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -33,6 +34,14 @@ func main() {
 	dataDir := getEnv("DATA_DIR", "/data")
 	port := getEnv("PORT", "8762")
 	secureCookie := getEnv("SECURE_COOKIE", "true") == "true"
+
+	// physical file purge after soft-delete window (default 7 days)
+	retentionDays := 7
+	if v := getEnv("FILE_RETENTION_DAYS", ""); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			retentionDays = n
+		}
+	}
 
 	// Ensure data directories exist
 	dbPath := filepath.Join(dataDir, "beaver.db")
@@ -98,6 +107,10 @@ func main() {
 	// Wrap everything with security headers
 	handler := middleware.SecurityHeaders(mux)
 
+	// purge files of soft-deleted messages older than retention window
+	stopGC := make(chan struct{})
+	go runFileGC(database, time.Duration(retentionDays)*24*time.Hour, stopGC)
+
 	server := &http.Server{
 		Addr:              ":" + port,
 		Handler:           handler,
@@ -120,6 +133,8 @@ func main() {
 	<-stop
 	log.Println("Shutting down...")
 
+	close(stopGC)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -128,6 +143,39 @@ func main() {
 	}
 
 	fmt.Println("Beaver Notes stopped")
+}
+
+// runFileGC removes physical files for messages soft-deleted before `now - retention`.
+// Runs every hour; ticker also fires once on start.
+func runFileGC(d *db.DB, retention time.Duration, stop <-chan struct{}) {
+	purge := func() {
+		paths, err := d.PurgeExpiredFiles(time.Now().UTC().Add(-retention))
+		if err != nil {
+			log.Printf("file gc: %v", err)
+			return
+		}
+		for _, p := range paths {
+			if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+				log.Printf("file gc unlink %s: %v", p, err)
+			}
+		}
+		if len(paths) > 0 {
+			log.Printf("file gc: removed %d files", len(paths))
+		}
+	}
+
+	purge() // run once on startup
+
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			purge()
+		case <-stop:
+			return
+		}
+	}
 }
 
 func getEnv(key, fallback string) string {

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/eduard256/beaver-notes/backend/internal/auth"
 	"github.com/eduard256/beaver-notes/backend/internal/db"
@@ -19,9 +20,9 @@ import (
 
 // Handlers holds dependencies for HTTP handlers.
 type Handlers struct {
-	db       *db.DB
-	auth     *auth.Auth
-	uploads  string // path to uploads directory
+	db      *db.DB
+	auth    *auth.Auth
+	uploads string // path to uploads directory
 }
 
 // New creates a new Handlers instance.
@@ -129,14 +130,10 @@ func (h *Handlers) MessageAction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, msg)
 
 	case "delete":
-		paths, err := h.db.DeleteMessage(id)
-		if err != nil {
+		// soft-delete: tombstone stays for ?since= sync, files cleaned by GC
+		if err := h.db.DeleteMessage(id); err != nil {
 			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 			return
-		}
-		// Clean up files from disk
-		for _, p := range paths {
-			os.Remove(p)
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 
@@ -175,9 +172,11 @@ func (h *Handlers) FileDownload(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", f.MimeType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, sanitizeFilename(f.Filename)))
-	w.Header().Set("Content-Length", strconv.FormatInt(f.Size, 10))
+	// file content is immutable (uuid path), client may cache forever
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 
-	io.Copy(w, file)
+	// ServeContent handles Range, If-Modified-Since, If-None-Match
+	http.ServeContent(w, r, sanitizeFilename(f.Filename), f.CreatedAt, file)
 }
 
 // FileDelete handles DELETE /api/files/{id}.
@@ -199,6 +198,7 @@ func (h *Handlers) listMessages(w http.ResponseWriter, r *http.Request) {
 		DateFrom: r.URL.Query().Get("date_from"),
 		DateTo:   r.URL.Query().Get("date_to"),
 		Tag:      r.URL.Query().Get("tag"),
+		Since:    r.URL.Query().Get("since"),
 	}
 
 	if v := r.URL.Query().Get("offset"); v != "" {
@@ -226,6 +226,19 @@ func (h *Handlers) listMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ETag: (total, top updated_at). Empty page = stable etag too.
+	var top string
+	if len(resp.Messages) > 0 {
+		top = resp.Messages[0].UpdatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	etag := fmt.Sprintf(`W/"%d-%s"`, resp.Total, top)
+	if r.Header.Get("If-None-Match") == etag {
+		w.Header().Set("ETag", etag)
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "no-cache")
 	writeJSON(w, http.StatusOK, resp)
 }
 

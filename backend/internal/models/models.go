@@ -3,14 +3,16 @@ package models
 import "time"
 
 // Message represents a single entry on the wall.
+// DeletedAt set = tombstone (returned only with ?since=).
 type Message struct {
-	ID        string    `json:"id"`
-	Content   string    `json:"content"`
-	Pinned    bool      `json:"pinned"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Files     []File    `json:"files,omitempty"`
-	Tags      []string  `json:"tags,omitempty"`
+	ID        string     `json:"id"`
+	Content   string     `json:"content"`
+	Pinned    bool       `json:"pinned"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	Files     []File     `json:"files,omitempty"`
+	Tags      []string   `json:"tags,omitempty"`
 }
 
 // File represents an uploaded file attached to a message.
@@ -42,15 +44,17 @@ type AuthResponse struct {
 }
 
 // MessageQuery holds all search/filter parameters.
+// Since set = incremental pull mode: includes tombstones, ORDER BY updated_at ASC.
 type MessageQuery struct {
-	Search  string
-	Type    string // text, image, video, file, pinned
+	Search   string
+	Type     string // text, image, video, file, pinned
 	DateFrom string
 	DateTo   string
-	Tag     string
-	Pinned  *bool
-	SizeMin *int64
-	SizeMax *int64
-	Offset  int
-	Limit   int
+	Tag      string
+	Pinned   *bool
+	SizeMin  *int64
+	SizeMax  *int64
+	Since    string
+	Offset   int
+	Limit    int
 }
